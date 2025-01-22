@@ -1,0 +1,64 @@
+# Define the test cases
+test_that("s3_list returns empty DataFrame when bucket is empty", {
+  mock_py_s3_client <- dsreq$get_Py_s3_client(py_boto3, "mock_account_id")
+  mock_py_s3_client$get_paginator <- function(...) {
+    list(paginate = function(...) { list(NULL) })
+  }
+  
+  df <- s3_list("/", bucket = "test-bucket", recursive = FALSE)
+  expect_true(nrow(df) == 0)
+  expect_equal(colnames(df), c("key", "type", "size_bytes", "last_modified"))
+})
+
+test_that("s3_list returns correct output for non-recursive listing", {
+  df <- s3_list("/", bucket = "test-bucket", recursive = FALSE)
+  
+  expect_true(nrow(df) == 3)
+  expect_equal(df$type[1], "obj")
+  expect_equal(df$type[3], "dir")
+  expect_equal(df$key[3], "folder1/")
+})
+
+test_that("s3_list handles missing path gracefully", {
+  df <- s3_list(bucket = "test-bucket", recursive = TRUE)
+  expect_true(nrow(df) > 0)
+  expect_equal(df$type[1], "obj")
+})
+
+test_that("s3_list limits results when limit is specified", {
+  df <- s3_list("/", bucket = "test-bucket", limit = 1, recursive = FALSE)
+  expect_true(nrow(df) == 1)
+})
+
+test_that("s3_list handles path without trailing slash correctly", {
+  df <- s3_list("folder1", bucket = "test-bucket", recursive = FALSE)
+  expect_true(nrow(df) > 0)
+})
+
+test_that("s3_list handles invalid bucket gracefully", {
+  expect_error(s3_list("/", bucket = "invalid-bucket", recursive = FALSE))
+})
+
+test_that("s3_list handles recursive listing correctly", {
+  df <- s3_list("/", bucket = "test-bucket", recursive = TRUE)
+  expect_true(all(df$type %in% c("obj", "dir")))
+})
+
+test_that("s3_list works when no bucket is specified", {
+  df <- s3_list("/", recursive = FALSE)
+  expect_true(nrow(df) > 0)
+})
+
+test_that("s3_list correctly identifies directories and files", {
+  df <- s3_list("/", bucket = "test-bucket", recursive = FALSE)
+  expect_equal(df$type[1], "obj")
+  expect_equal(df$type[3], "dir")
+})
+
+test_that("s3_list handles edge cases of empty path and root path", {
+  df_empty <- s3_list(path = "", bucket = "test-bucket", recursive = FALSE)
+  df_root <- s3_list(path = "/", bucket = "test-bucket", recursive = FALSE)
+  
+  expect_equal(df_empty, df_root)
+  expect_true(nrow(df_empty) > 0)
+})
