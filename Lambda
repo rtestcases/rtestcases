@@ -1,0 +1,63 @@
+import boto3
+import psycopg2
+import os
+import io
+
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+S3_BUCKET = os.getenv("S3_BUCKET")
+S3_FILE_KEY = os.getenv("S3_FILE_KEY")
+
+s3_client = boto3.client("s3")
+
+def lambda_handler(event, context):
+    try:
+        # Connect to Aurora PostgreSQL
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        cursor = conn.cursor()
+        
+        # Fetch file from S3
+        response = s3_client.get_object(Bucket=S3_BUCKET, Key=S3_FILE_KEY)
+        file_content = response["Body"].read().decode("utf-8")
+
+        # Use COPY for bulk insert
+        cursor.copy_expert(f"COPY your_table FROM STDIN WITH CSV HEADER", io.StringIO(file_content))
+        
+        # Commit and close connection
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"status": "Success", "message": "Data loaded using COPY"}
+
+    except Exception as e:
+        return {"status": "Error", "message": str(e)}
+
+
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject"
+            ],
+            "Resource": "arn:aws:s3:::your-bucket-name/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "rds-db:connect"
+            ],
+            "Resource": "arn:aws:rds:us-east-1:your-account-id:db:your-aurora-instance"
+        }
+    ]
+}
