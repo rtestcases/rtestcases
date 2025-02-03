@@ -1,0 +1,68 @@
+import psycopg2
+import json
+import boto3
+import os
+from io import StringIO
+
+# Initialize S3 client
+s3_client = boto3.client('s3')
+
+# RDS connection parameters (you can use environment variables for security)
+RDS_HOST = os.environ['RDS_HOST']
+RDS_PORT = os.environ['RDS_PORT']
+RDS_DBNAME = os.environ['RDS_DBNAME']
+RDS_USER = os.environ['RDS_USER']
+RDS_PASSWORD = os.environ['RDS_PASSWORD']
+
+# S3 Bucket name
+S3_BUCKET_NAME = os.environ['S3_BUCKET_NAME']
+S3_FILE_NAME = 'data_from_db.json'  # Change the file name as per requirement
+
+def lambda_handler(event, context):
+    try:
+        # Connect to RDS PostgreSQL database
+        conn = psycopg2.connect(
+            host=RDS_HOST,
+            port=RDS_PORT,
+            dbname=RDS_DBNAME,
+            user=RDS_USER,
+            password=RDS_PASSWORD
+        )
+        cursor = conn.cursor()
+
+        # Query the data you want to export (example query)
+        cursor.execute("SELECT * FROM your_table;")
+        rows = cursor.fetchall()
+
+        # Convert the data to JSON or CSV, depending on your requirement
+        data_to_export = []
+        column_names = [desc[0] for desc in cursor.description]  # Get column names
+
+        for row in rows:
+            data_to_export.append(dict(zip(column_names, row)))
+
+        # Optionally, you can convert the data to CSV, JSON, etc.
+        json_data = json.dumps(data_to_export)
+
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=S3_FILE_NAME,
+            Body=json_data
+        )
+
+        # Close the cursor and connection
+        cursor.close()
+        conn.close()
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Data successfully exported to S3')
+        }
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps(f"Error exporting data: {str(e)}")
+        }
