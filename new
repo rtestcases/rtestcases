@@ -1,0 +1,93 @@
+import os
+import csv
+import io
+import boto3
+import psycopg2
+from psycopg2.extras import execute_batch
+
+def lambda_handler(event, context):
+    # Get configuration from environment variables
+    s3_bucket  = os.environ['S3_BUCKET']     # e.g., "my-s3-bucket"
+    s3_key     = os.environ['S3_KEY']        # e.g., "data/my_data.csv"
+    table_name = os.environ['TABLE_NAME']    # e.g., "my_data"
+    
+    db_host     = os.environ['DB_HOST']       # e.g., "mydb.xxxxxx.us-east-1.rds.amazonaws.com"
+    db_name     = os.environ['DB_NAME']       # e.g., "mydatabase"
+    db_user     = os.environ['DB_USER']       # e.g., "mydbuser"
+    db_password = os.environ['DB_PASSWORD']   # e.g., "mypassword"
+    db_port     = os.environ.get('DB_PORT', '5432')
+    
+    # 1. Read the CSV file from S3
+    s3 = boto3.client('s3')
+    try:
+        response = s3.get_object(Bucket=s3_bucket, Key=s3_key)
+        csv_data = response['Body'].read().decode('utf-8')
+    except Exception as e:
+        print(f"Error reading CSV from S3: {e}")
+        raise e
+
+    # 2. Parse the CSV file using csv.DictReader
+    csv_file = io.StringIO(csv_data)
+    reader = csv.DictReader(csv_file)
+    columns = reader.fieldnames  # Get header columns; must be present
+    if not columns:
+        raise Exception("CSV file does not contain a header row.")
+    
+    # Build a list of rows as tuples in the order of the header
+    rows = []
+    for row in reader:
+        rows.append(tuple(row[col] for col in columns))
+    
+    if not rows:
+        print("No data rows found in CSV file.")
+        return {"status": "No data to insert"}
+    
+    # 3. Connect to PostgreSQL using psycopg2
+    try:
+        conn = psycopg2.connect(
+            host=db_host,
+            port=db_port,
+            database=db_name,
+            user=db_user,
+            password=db_password
+        )
+        conn.autocommit = False  # We manage commits manually
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"Error connecting to PostgreSQL: {e}")
+        raise e
+
+    try:
+        # 4. Create the table automatically if it does not exist.
+        #    All columns are defined as TEXT.
+        create_table_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ("
+        col_defs = []
+        for col in columns:
+            # Using double quotes to preserve column name case/special characters.
+            col_defs.append(f'"{col}" TEXT')
+        create_table_sql += ", ".join(col_defs) + ");"
+        
+        cursor.execute(create_table_sql)
+        conn.commit()
+        print(f"Table '{table_name}' ensured to exist.")
+
+        # 5. Insert the CSV data into the table.
+        #    Build the INSERT statement dynamically based on the CSV header.
+        cols_formatted = ", ".join([f'"{col}"' for col in columns])
+        placeholders  = ", ".join(["%s"] * len(columns))
+        insert_sql = f"INSERT INTO {table_name} ({cols_formatted}) VALUES ({placeholders});"
+        
+        # Use execute_batch for efficient insertion of multiple rows.
+        execute_batch(cursor, insert_sql, rows)
+        conn.commit()
+        print(f"Successfully inserted {cursor.rowcount} rows into '{table_name}'.")
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"Error during table creation or data insertion: {e}")
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return {"status": "Success", "rows_inserted": len(rows)}
