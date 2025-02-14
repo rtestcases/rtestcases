@@ -1,0 +1,34 @@
+import os
+import psycopg2
+
+def lambda_handler(event, context):
+    # Database configuration from environment variables
+    db_host = os.environ['DB_HOST']
+    db_name = os.environ['DB_NAME']
+    db_user = os.environ['DB_USER']
+    db_pass = os.environ['DB_PASS']
+    db_port = os.environ.get('DB_PORT', 5432)
+
+    try:
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=db_host,
+            database=db_name,
+            user=db_user,
+            password=db_pass,
+            port=db_port
+        )
+        cursor = conn.cursor()
+        cursor.execute("SELECT version();")
+        version = cursor.fetchone()
+
+        print("✅ PostgreSQL Connection Successful!")
+        print(f"PostgreSQL Version: {version[0]}")
+
+        cursor.close()
+        conn.close()
+        return {"status": "success", "db_version": version[0]}
+
+    except Exception as e:
+        print(f"❌ Failed to connect to PostgreSQL: {e}")
+        return {"status": "error", "message": str(e)}
