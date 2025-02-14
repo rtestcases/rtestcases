@@ -1,0 +1,71 @@
+import os
+import csv
+import io
+import boto3
+import psycopg2
+from psycopg2.extras import execute_batch
+
+# Environment variables (set these in your Lambda configuration)
+S3_BUCKET = os.environ['S3_BUCKET']         # e.g., 'my-s3-bucket'
+S3_KEY = os.environ['S3_KEY']               # e.g., 'data/my_data.csv'
+DB_HOST = os.environ['DB_HOST']             # RDS endpoint
+DB_NAME = os.environ['DB_NAME']             # Database name
+DB_USER = os.environ['DB_USER']             # Database username
+DB_PASSWORD = os.environ['DB_PASSWORD']     # Database password
+DB_PORT = os.environ.get('DB_PORT', '5432')   # Port, default 5432
+
+def lambda_handler(event, context):
+    # 1. Read CSV from S3
+    s3_client = boto3.client('s3')
+    try:
+        s3_object = s3_client.get_object(Bucket=S3_BUCKET, Key=S3_KEY)
+    except Exception as e:
+        print(f"Error fetching file from S3: {e}")
+        raise e
+
+    # Read CSV content into a string buffer
+    file_content = s3_object['Body'].read().decode('utf-8')
+    csv_reader = csv.DictReader(io.StringIO(file_content))
+
+    # Build a list of rows from the CSV
+    rows = []
+    for row in csv_reader:
+        # Example: Assume CSV columns: name, value.
+        # Modify according to your CSV file and table schema.
+        rows.append((row['name'], row['value']))
+
+    if not rows:
+        print("No data found in CSV.")
+        return {"status": "No data to process"}
+
+    # 2. Connect to the PostgreSQL database
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            port=DB_PORT
+        )
+        conn.autocommit = False
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        raise e
+
+    try:
+        with conn.cursor() as cur:
+            # 3. Insert data into the target table.
+            # Adjust the INSERT statement to match your table.
+            insert_sql = "INSERT INTO my_data (name, value) VALUES (%s, %s)"
+            # Use execute_batch for efficiency.
+            execute_batch(cur, insert_sql, rows)
+        conn.commit()
+        print(f"Successfully inserted {len(rows)} rows.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Error inserting data: {e}")
+        raise e
+    finally:
+        conn.close()
+
+    return {"status": "Success", "rows_inserted": len(rows)}
