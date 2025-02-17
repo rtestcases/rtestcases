@@ -1,63 +1,67 @@
 import boto3
 import psycopg2
-import os
+import csv
 import io
+import os
 
-DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_FILE_KEY = os.getenv("S3_FILE_KEY")
+# Database connection details
+DB_HOST = os.environ['DB_HOST']
+DB_PORT = os.environ['DB_PORT']
+DB_NAME = os.environ['DB_NAME']
+DB_USER = os.environ['DB_USER']
+DB_PASSWORD = os.environ['DB_PASSWORD']
 
-s3_client = boto3.client("s3")
+# S3 Client
+s3 = boto3.client('s3')
 
 def lambda_handler(event, context):
-    try:
-        # Connect to Aurora PostgreSQL
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD
-        )
-        cursor = conn.cursor()
-        
-        # Fetch file from S3
-        response = s3_client.get_object(Bucket=S3_BUCKET, Key=S3_FILE_KEY)
-        file_content = response["Body"].read().decode("utf-8")
+    # Get the S3 bucket name and CSV file name from the event (triggered by S3 upload)
+    bucket_name = event['Records'][0]['s3']['bucket']['name']
+    file_key = event['Records'][0]['s3']['object']['key']
+    
+    # Download CSV file from S3
+    s3_object = s3.get_object(Bucket=bucket_name, Key=file_key)
+    csv_file = io.StringIO(s3_object['Body'].read().decode('utf-8'))
+    
+    # Read the CSV file
+    csv_reader = csv.reader(csv_file)
+    headers = next(csv_reader)  # First row is the header
+    rows = list(csv_reader)  # Remaining rows are data
+    
+    # Establish connection to RDS PostgreSQL
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+    cur = conn.cursor()
 
-        # Use COPY for bulk insert
-        cursor.copy_expert(f"COPY your_table FROM STDIN WITH CSV HEADER", io.StringIO(file_content))
-        
-        # Commit and close connection
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return {"status": "Success", "message": "Data loaded using COPY"}
+    # Dynamically create a table based on the CSV headers
+    table_name = 'my_table'  # You can modify this logic to set dynamic table names if needed
+    create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
+    
+    # Define the column types (we assume text for simplicity, you can extend this logic)
+    for header in headers:
+        create_table_query += f"{header} TEXT, "
+    
+    create_table_query = create_table_query.rstrip(', ') + ");"
+    
+    # Execute the CREATE TABLE query
+    cur.execute(create_table_query)
+    conn.commit()
+    
+    # Insert the CSV rows into the PostgreSQL table
+    insert_query = f"INSERT INTO {table_name} ({', '.join(headers)}) VALUES %s"
+    psycopg2.extras.execute_values(cur, insert_query, rows)
+    conn.commit()
+    
+    # Clean up and close connections
+    cur.close()
+    conn.close()
 
-    except Exception as e:
-        return {"status": "Error", "message": str(e)}
-
-
-
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject"
-            ],
-            "Resource": "arn:aws:s3:::your-bucket-name/*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "rds-db:connect"
-            ],
-            "Resource": "arn:aws:rds:us-east-1:your-account-id:db:your-aurora-instance"
-        }
-    ]
-}
+    return {
+        'statusCode': 200,
+        'body': f"Successfully processed {len(rows)} rows from {file_key}"
+    }
