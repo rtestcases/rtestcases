@@ -1,67 +1,64 @@
-import boto3
+import os
 import psycopg2
 import csv
 import io
-import os
-
-# Database connection details
-DB_HOST = os.environ['DB_HOST']
-DB_PORT = os.environ['DB_PORT']
-DB_NAME = os.environ['DB_NAME']
-DB_USER = os.environ['DB_USER']
-DB_PASSWORD = os.environ['DB_PASSWORD']
-
-# S3 Client
-s3 = boto3.client('s3')
+import boto3
 
 def lambda_handler(event, context):
-    # Get the S3 bucket name and CSV file name from the event (triggered by S3 upload)
-    bucket_name = event['Records'][0]['s3']['bucket']['name']
-    file_key = event['Records'][0]['s3']['object']['key']
+    # Retrieve environment variables
+    db_host = os.environ.get('DB_HOST')               # e.g., "your-db-instance.xxxxx.us-east-1.rds.amazonaws.com"
+    db_name = os.environ.get('DB_NAME')               # e.g., "your_database"
+    db_user = os.environ.get('DB_USER')               # e.g., "your_username"
+    db_password = os.environ.get('DB_PASSWORD')       # e.g., "your_password"
+    db_port = os.environ.get('DB_PORT', '5432')        # Default PostgreSQL port is 5432
     
-    # Download CSV file from S3
-    s3_object = s3.get_object(Bucket=bucket_name, Key=file_key)
-    csv_file = io.StringIO(s3_object['Body'].read().decode('utf-8'))
-    
-    # Read the CSV file
-    csv_reader = csv.reader(csv_file)
-    headers = next(csv_reader)  # First row is the header
-    rows = list(csv_reader)  # Remaining rows are data
-    
-    # Establish connection to RDS PostgreSQL
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD
-    )
-    cur = conn.cursor()
+    s3_bucket = os.environ.get('S3_BUCKET')           # e.g., "your-s3-bucket-name"
+    s3_key = os.environ.get('S3_KEY')                 # e.g., "exports/sample_table.csv"
+    table_name = os.environ.get('TABLE_NAME', 'sample_table')  # Table you want to export
 
-    # Dynamically create a table based on the CSV headers
-    table_name = 'my_table'  # You can modify this logic to set dynamic table names if needed
-    create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
-    
-    # Define the column types (we assume text for simplicity, you can extend this logic)
-    for header in headers:
-        create_table_query += f"{header} TEXT, "
-    
-    create_table_query = create_table_query.rstrip(', ') + ");"
-    
-    # Execute the CREATE TABLE query
-    cur.execute(create_table_query)
-    conn.commit()
-    
-    # Insert the CSV rows into the PostgreSQL table
-    insert_query = f"INSERT INTO {table_name} ({', '.join(headers)}) VALUES %s"
-    psycopg2.extras.execute_values(cur, insert_query, rows)
-    conn.commit()
-    
-    # Clean up and close connections
-    cur.close()
-    conn.close()
+    conn = None
+    try:
+        # Connect to the PostgreSQL database
+        conn = psycopg2.connect(
+            host=db_host,
+            database=db_name,
+            user=db_user,
+            password=db_password,
+            port=db_port
+        )
+        cursor = conn.cursor()
 
-    return {
-        'statusCode': 200,
-        'body': f"Successfully processed {len(rows)} rows from {file_key}"
-    }
+        # Execute query to select all rows from the sample table
+        query = f"SELECT * FROM {table_name}"
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        # Get the column names from the cursor description
+        colnames = [desc[0] for desc in cursor.description]
+        
+        # Convert the query results to CSV using an in-memory buffer
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        csv_writer.writerow(colnames)  # Write header row
+        csv_writer.writerows(rows)      # Write all data rows
+        
+        csv_data = csv_buffer.getvalue()
+        csv_buffer.close()
+
+        # Upload the CSV data to S3
+        s3_client = boto3.client('s3')
+        s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=csv_data)
+        
+        return {
+            "statusCode": 200,
+            "body": f"Successfully exported table '{table_name}' to s3://{s3_bucket}/{s3_key}"
+        }
+    except Exception as e:
+        print("Error:", e)
+        return {
+            "statusCode": 500,
+            "body": f"Error exporting table: {str(e)}"
+        }
+    finally:
+        if conn:
+            conn.close()
