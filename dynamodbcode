@@ -1,0 +1,37 @@
+import boto3
+import os
+
+# Setup
+region = 'us-east-1'
+bucket_name = 'your-bucket-name'
+prefix = 'path/to/files/'  # e.g. "raw-text-files/"
+
+dynamodb = boto3.resource('dynamodb', region_name=region)
+s3 = boto3.client('s3')
+table = dynamodb.Table('text_file_table')
+
+def extract_key_from_filename(filename):
+    # e.g., FGSM_5411_20230329_132730.txt --> FGSM_5411
+    base = os.path.basename(filename)
+    return "".join(base.replace(".txt", "").split("")[0:2])
+
+# List and process files in S3
+response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+for obj in response.get('Contents', []):
+    s3_key = obj['Key']
+    if not s3_key.endswith('.txt'):
+        continue
+
+    file_key = extract_key_from_filename(s3_key)
+    content = s3.get_object(Bucket=bucket_name, Key=s3_key)['Body'].read().decode('utf-8')
+
+    if len(content.encode('utf-8')) > 400_000:
+        print(f"Skipping {s3_key}: exceeds 400KB limit")
+        continue
+
+    # Upload to DynamoDB
+    table.put_item(Item={
+        'PK': file_key,
+        'file_contents': content
+    })
+    print(f"Uploaded file {s3_key} with key {file_key}")
