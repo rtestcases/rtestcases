@@ -1,0 +1,25 @@
+import boto3
+import os
+
+# Initialize DynamoDB client
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('YourTableName')  # Replace with your table name
+
+# Directory containing your text files
+directory = 'path/to/your/files'
+
+# Iterate over .txt files
+for filename in os.listdir(directory):
+    if filename.endswith('.txt'):
+        filepath = os.path.join(directory, filename)
+        with open(filepath, 'r') as file:
+            content = file.read()
+
+        # Put item into DynamoDB
+        response = table.put_item(
+            Item={
+                'file_name': filename,
+                'file_content': content
+            }
+        )
+        print(f"Uploaded {filename}: {response['ResponseMetadata']['HTTPStatusCode']}")
