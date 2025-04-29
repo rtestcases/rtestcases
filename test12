@@ -1,0 +1,14 @@
+import boto3
+
+# Initialize DynamoDB
+dynamodb = boto3.resource('dynamodb', region_name='your-region')
+table = dynamodb.Table('TextFilesTable')
+
+# Retrieve one file (change the key!)
+response = table.get_item(Key={'file_name': 'sample.txt'})
+content = response['Item']['file_content']
+
+# Split and print lines
+lines = content.splitlines()
+for line in lines:
+    print(f"Line: {line}")
