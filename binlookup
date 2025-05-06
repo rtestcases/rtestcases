@@ -1,0 +1,31 @@
+import boto3
+import pandas as pd
+from io import StringIO
+
+def get_eligible_networks_from_request(request_data, bucket_name, region='us-east-1'):
+    bin9 = str(request_data.get('BIN9')).strip()
+    pinless_flag = request_data.get('X_PINLESS_DEBIT', '').strip().upper()
+    
+    # Determine the correct file
+    if pinless_flag == 'N':
+        s3_key = 'pin_bin_results.csv'
+    else:
+        s3_key = 'pinless_bin_results.csv'
+
+    # Connect to S3 and download the file
+    s3 = boto3.client('s3', region_name=region)
+    response = s3.get_object(Bucket=bucket_name, Key=bin_lookup_tables)
+    csv_content = response['Body'].read().decode('utf-8')
+    
+    # Load CSV into DataFrame
+    df = pd.read_csv(StringIO(csv_content), dtype={'PROPER_BIN': str})
+
+    # Look up BIN9 in PROPER_BIN
+    match = df[df['PROPER_BIN'] == bin9]
+
+    if match.empty:
+        return {"ELIGIBLE_NETWORKS": None, "message": f"No match found for BIN9={bin9}"}
+    
+    return {"ELIGIBLE_NETWORKS": match.iloc[0]['ELIGIBLE_NETWORKS']}
+
+result = get_eligible_networks_from_request(request_payload, bucket_name='dse-praas-merchant-fee-raw')
