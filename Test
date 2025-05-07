@@ -1,0 +1,31 @@
+import json
+
+def load_file(file_key):
+    file_name = f"{file_key}.txt"
+    with open(file_name, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def process_file_data(data, reg_typ, a_dbt):
+    filtered_by_reg_typ = [row for row in data if row.get('reg_typ') in ['REG', 'EX']]
+    if not filtered_by_reg_typ:
+        return "No rows with reg_typ 'REG' or 'EX'."
+
+    filtered_by_amount = [
+        row for row in filtered_by_reg_typ
+        if row.get('low_be') is not None and row.get('hi_be') is not None and
+           float(row['low_be']) <= a_dbt <= float(row['hi_be'])
+    ]
+    if not filtered_by_amount:
+        return "No matching rows for A_DBT range."
+
+    return min(filtered_by_amount, key=lambda x: float(x['rank']))
+
+if __name__ == "__main__":
+    file_key = "FGSM_5411"
+    reg_typ = "REG"
+    A_DBT = 30.5
+
+    print(f"Testing with file_key={file_key}, reg_typ={reg_typ}, A_DBT={A_DBT}")
+    file_data = load_file(file_key)
+    result = process_file_data(file_data, reg_typ, A_DBT)
+    print("Selected row:", result)
