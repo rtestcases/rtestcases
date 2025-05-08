@@ -1,0 +1,85 @@
+import boto3
+import json
+
+# Configuration
+region = 'us-east-1'
+table_name = 'text_file_table'
+
+# Initialize DynamoDB resource
+dynamodb = boto3.resource('dynamodb', region_name=region)
+table = dynamodb.Table(table_name)
+
+def get_file_content(file_key):
+    """
+    Fetch JSON-formatted file contents from DynamoDB using the given key.
+    """
+    response = table.get_item(Key={'PK': file_key})
+    if 'Item' not in response:
+        raise ValueError(f"No file found for key: {file_key}")
+    
+    file_contents = response['Item']['file_contents']
+    
+    try:
+        data = json.loads(file_contents)
+    except json.JSONDecodeError:
+        raise ValueError("File content is not valid JSON.")
+    
+    return data
+
+def process_request(file_key, input_reg_typ, input_a_dbt):
+    """
+    Main logic:
+    1. Fetch rows from file stored in DynamoDB
+    2. Filter rows with reg_typ in ['REG', 'EX']
+    3. Further filter by A_DBT range
+    4. Return row with the lowest rank
+    """
+    rows = get_file_content(file_key)
+
+    # Step 1: Filter reg_typ
+    reg_typ_filtered = [
+        row for row in rows 
+        if row.get('reg_typ') in ['REG', 'EX']
+    ]
+    if not reg_typ_filtered:
+        raise ValueError("No rows matching REG or EX found.")
+
+    # Step 2: Filter A_DBT in range
+    amount_filtered = [
+        row for row in reg_typ_filtered
+        if row.get('low_be') is not None and row.get('hi_be') is not None and
+           float(row['low_be']) <= input_a_dbt <= float(row['hi_be'])
+    ]
+    if not amount_filtered:
+        raise ValueError("No rows matching A_DBT range found.")
+
+    # Step 3: Select row with lowest rank
+    selected_row = min(amount_filtered, key=lambda x: float(x['rank']))
+
+    return selected_row
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda entrypoint.
+    Expects event JSON to contain:
+        - file_key (string)
+        - reg_typ (string)
+        - A_DBT (number)
+    """
+    try:
+        file_key = event['file_key']
+        reg_typ = event['reg_typ']
+        a_dbt = float(event['A_DBT'])
+
+        result = process_request(file_key, reg_typ, a_dbt)
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(result)
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 400,
+            "error": str(e)
+        }
