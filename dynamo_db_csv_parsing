@@ -1,0 +1,103 @@
+import boto3
+import json
+import csv
+import io
+import re
+
+# DynamoDB setup
+region = 'us-east-1'
+table_name = 'text_file_table'
+dynamodb = boto3.resource('dynamodb', region_name=region)
+table = dynamodb.Table(table_name)
+
+def parse_weird_csv_string(csv_string):
+    """
+    Parses a flat CSV string where rows are separated by double spaces or more.
+    Returns list of dicts.
+    """
+    rows = re.split(r'\s{2,}', csv_string.strip())
+    if not rows or len(rows) < 2:
+        raise ValueError("CSV string does not contain header and data rows properly.")
+
+    header_line = rows[0]
+    data_lines = rows[1:]
+
+    header = next(csv.reader([header_line]))
+    parsed_data = []
+
+    for line in data_lines:
+        fields = next(csv.reader([line]))
+        row_dict = dict(zip(header, fields))
+        parsed_data.append(row_dict)
+
+    return parsed_data
+
+def get_file_content(file_key):
+    """
+    Fetch and parse CSV string from DynamoDB.
+    """
+    response = table.get_item(Key={'PK': file_key})
+    if 'Item' not in response:
+        raise ValueError(f"No file found for key: {file_key}")
+    
+    raw_string = response['Item']['file_contents']
+
+    try:
+        parsed_rows = parse_weird_csv_string(raw_string)
+    except Exception as e:
+        raise ValueError(f"Failed to parse file_contents: {str(e)}")
+
+    return parsed_rows
+
+def process_request(file_key, input_reg_typ, input_a_dbt):
+    """
+    Main business logic: fetch rows, filter by reg_type and amount range,
+    then return the row with the lowest rank.
+    """
+    rows = get_file_content(file_key)
+
+    # Filter by reg_type
+    filtered_by_reg = [
+        row for row in rows
+        if row.get('reg_type') in ['REG', 'EX']
+    ]
+
+    if not filtered_by_reg:
+        raise ValueError("No rows matching reg_type REG or EX found.")
+
+    # Filter by amount range
+    filtered_by_amount = [
+        row for row in filtered_by_reg
+        if row.get('lo_be') and row.get('hi_be') and
+           float(row['lo_be']) <= input_a_dbt <= float(row['hi_be'])
+    ]
+
+    if not filtered_by_amount:
+        raise ValueError("No rows matching A_DBT range found.")
+
+    # Select row with lowest rank
+    selected_row = min(filtered_by_amount, key=lambda x: float(x['ranks']))
+    return selected_row
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda entrypoint.
+    Expects event with: file_key, reg_typ, A_DBT
+    """
+    try:
+        file_key = event['file_key']
+        reg_typ = event['reg_typ']
+        a_dbt = float(event['A_DBT'])
+
+        result = process_request(file_key, reg_typ, a_dbt)
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(result)
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 400,
+            "error": str(e)
+        }
