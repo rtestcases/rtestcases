@@ -1,0 +1,47 @@
+import random
+from pyspark.sql.functions import col, udf
+from pyspark.sql.types import StringType
+
+def anonymize_bins(df, output_path_prefix):
+    # Step 1: Extract unique BINs
+    unique_bins = df.select("PROPER_BIN").distinct()
+    original_bins = [row['PROPER_BIN'] for row in unique_bins.collect()]
+
+    # Step 2: Generate unique random BINs of same length
+    used = set()
+    bin_map = {}
+
+    for bin_val in original_bins:
+        bin_str = str(bin_val)
+        length = len(bin_str)
+        while True:
+            rand_bin = ''.join(random.choices('0123456789', k=length))
+            if rand_bin not in used:
+                used.add(rand_bin)
+                bin_map[bin_str] = rand_bin
+                break
+
+    # Step 3: Broadcast mapping & create UDF
+    broadcast_map = spark.sparkContext.broadcast(bin_map)
+
+    @udf(StringType())
+    def replace_bin(bin_val):
+        return broadcast_map.value.get(str(bin_val), None)
+
+    # Step 4: Replace PROPER_BIN with anonymized
+    df_anonymized = df.withColumn("PROPER_BIN", replace_bin(col("PROPER_BIN")))
+
+    # Step 5: Save anonymized file
+    df_anonymized.write.csv(f"{output_path_prefix}_anonymized.csv", header=True, mode="overwrite")
+
+    # Step 6: Save mapping file
+    mapping_rows = [(k, v) for k, v in bin_map.items()]
+    df_mapping = spark.createDataFrame(mapping_rows, ["PROPER_BIN", "ANONYMIZED_BIN"])
+    df_mapping.write.csv(f"{output_path_prefix}_mapping.csv", header=True, mode="overwrite")
+# Load your datasets (from Snowflake or CSVs)
+df_pin = ...      # pin_bin_results DataFrame
+df_pinless = ...  # pinless_bin_results DataFrame
+
+# Anonymize each separately
+anonymize_bins(df_pin, "/mnt/data/pin_bin_results")
+anonymize_bins(df_pinless, "/mnt/data/pinless_bin_results")
