@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+Test script to verify the input validation for the Dynamic Routing Microservice API.
+This script tests the examples provided in the requirements document.
+"""
+
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'staging'))
+
+from app.schemas.infer import ModelInput
+from fastapi import HTTPException
+
+def test_valid_pin_requests():
+    """Test the valid PIN requests from the requirements document."""
+    print("Testing valid PIN requests...")
+    
+    valid_requests = [
+        {
+            "cardBin": "400022002",
+            "amount": 10,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "403163030",
+            "amount": 11.1,
+            "mcc": "5411",
+            "merchant_code": "FGSM",
+            "regulation_type": "EX",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "473181000",
+            "amount": 24.25,
+            "mcc": "5411",
+            "merchant_code": "FGSM",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "473703000",
+            "amount": 67.09,
+            "mcc": "5411",
+            "merchant_code": "SULL",
+            "regulation_type": "EX",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "403163052",
+            "amount": 97.32,
+            "mcc": "5411",
+            "merchant_code": "SULL",
+            "regulation_type": "EX",
+            "routing_type": "PIN"
+        }
+    ]
+    
+    for i, request in enumerate(valid_requests, 1):
+        try:
+            model_input = ModelInput(**request)
+            print(f"✓ Valid request {i} passed validation")
+        except Exception as e:
+            print(f"✗ Valid request {i} failed validation: {e}")
+            return False
+    
+    return True
+
+def test_invalid_pin_requests():
+    """Test the invalid PIN requests from the requirements document."""
+    print("\nTesting invalid PIN requests...")
+    
+    invalid_requests = [
+        {
+            "cardBin": "47",  # Too short
+            "amount": 67.09,
+            "mcc": "5411",
+            "merchant_code": "SULL",
+            "regulation_type": "EX",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "403163052",
+            "amount": 97.32,
+            "mcc": "541",  # Too short
+            "merchant_code": "SULL",
+            "regulation_type": "EX",
+            "routing_type": "PIN"
+        },
+        {
+            "cardBin": "403163052",
+            "amount": 97.32,
+            "mcc": "5411",
+            "merchant_code": "SULL",  # Missing closing quote
+            "regulation_type": "EXX",  # Invalid value
+            "routing_type": "PIN"
+        },
+        {
+            "cardBin": "403163052",
+            "amount": 97.32,
+            "mcc": "5411",
+            "merchant_code": None,  # Null value
+            "regulation_type": "EX",
+            "routing_type": "PIN"
+        }
+    ]
+    
+    for i, request in enumerate(invalid_requests, 1):
+        try:
+            model_input = ModelInput(**request)
+            print(f"✗ Invalid request {i} should have failed but passed validation")
+            return False
+        except HTTPException as e:
+            print(f"✓ Invalid request {i} correctly rejected: {e.detail}")
+        except Exception as e:
+            print(f"✓ Invalid request {i} correctly rejected: {e}")
+    
+    return True
+
+def test_pinless_requests():
+    """Test PINLESS requests with entry_type validation."""
+    print("\nTesting PINLESS requests...")
+    
+    # Valid PINLESS request
+    try:
+        valid_pinless = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "POS"
+        }
+        model_input = ModelInput(**valid_pinless)
+        print("✓ Valid PINLESS request passed validation")
+    except Exception as e:
+        print(f"✗ Valid PINLESS request failed: {e}")
+        return False
+    
+    # Invalid PINLESS request - missing entry_type
+    try:
+        invalid_pinless = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS"
+            # Missing entry_type
+        }
+        model_input = ModelInput(**invalid_pinless)
+        print("✗ Invalid PINLESS request should have failed but passed")
+        return False
+    except HTTPException as e:
+        print(f"✓ Invalid PINLESS request correctly rejected: {e.detail}")
+    
+    # Invalid PINLESS request - invalid entry_type
+    try:
+        invalid_pinless = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "INVALID"
+        }
+        model_input = ModelInput(**invalid_pinless)
+        print("✗ Invalid PINLESS request should have failed but passed")
+        return False
+    except HTTPException as e:
+        print(f"✓ Invalid PINLESS request correctly rejected: {e.detail}")
+    
+    return True
+
+def test_edge_cases():
+    """Test edge cases and boundary conditions."""
+    print("\nTesting edge cases...")
+    
+    # Test amount = 0 (should fail)
+    try:
+        edge_case = {
+            "cardBin": "400022002",
+            "amount": 0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN"
+        }
+        model_input = ModelInput(**edge_case)
+        print("✗ Amount = 0 should have failed but passed")
+        return False
+    except Exception as e:
+        print(f"✓ Amount = 0 correctly rejected: {e}")
+    
+    # Test amount = negative (should fail)
+    try:
+        edge_case = {
+            "cardBin": "400022002",
+            "amount": -10,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN"
+        }
+        model_input = ModelInput(**edge_case)
+        print("✗ Negative amount should have failed but passed")
+        return False
+    except Exception as e:
+        print(f"✓ Negative amount correctly rejected: {e}")
+    
+    # Test PIN with entry_type (should fail)
+    try:
+        edge_case = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "entry_type": "POS"
+        }
+        model_input = ModelInput(**edge_case)
+        print("✗ PIN with entry_type should have failed but passed")
+        return False
+    except HTTPException as e:
+        print(f"✓ PIN with entry_type correctly rejected: {e.detail}")
+    
+    return True
+
+def main():
+    """Run all validation tests."""
+    print("Running Dynamic Routing Microservice Input Validation Tests")
+    print("=" * 60)
+    
+    tests = [
+        test_valid_pin_requests,
+        test_invalid_pin_requests,
+        test_pinless_requests,
+        test_edge_cases
+    ]
+    
+    all_passed = True
+    for test in tests:
+        if not test():
+            all_passed = False
+    
+    print("\n" + "=" * 60)
+    if all_passed:
+        print("🎉 All tests passed! Validation is working correctly.")
+    else:
+        print("❌ Some tests failed. Please check the validation implementation.")
+    
+    return all_passed
+
+if __name__ == "__main__":
+    main()
