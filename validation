@@ -128,3 +128,10 @@ class ModelInput(BaseModel):
 #         title='placeholder for model_version outpus',
 #         description = 'something_else'
 #         )
+
+   try:            
+       networks = lookups[model_input['routing_type'].lower()].get(hashed_bin, '')
+       #main_logger.info(f'{cardbin_length}-BIN network lookup returning {networks}')
+   except Exception as e:
+       main_logger.warning(f"Error looking for {model_input['cardBin']} in {model_input['routing_type']} lookup: {e}")
+       networks = ''
