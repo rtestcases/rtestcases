@@ -1,0 +1,101 @@
+from fastapi import HTTPException
+from pydantic import BaseModel, Field, confloat, constr, field_validator
+from typing import Optional
+
+
+class ModelInput(BaseModel):
+    cardBin: constr(pattern=r"^[0-9]{6,9}$") = Field(
+        title='cardBin',
+        description='card BIN, string of 6-9 digits - required field.'
+    )
+    amount: confloat(gt=0) = Field(
+        title='amount',
+        description='transaction amount, must be positive - required field.'
+    )
+    mcc: constr(pattern=r"^[0-9]{4}$") = Field(
+        title='mcc',
+        description='merchant category code (MCC), exactly 4 digits - required field.'
+    )
+    merchant_code: constr(pattern=r"^[A-Za-z]{4}$") = Field(
+        title='merchant_code',
+        description='merchant code, exactly 4 letters - required field.'
+    )
+
+    @field_validator("merchant_code")
+    def validate_merchant_code(cls, v):
+        return v.upper()
+    regulation_type: str = Field(
+        title='regulation_type',
+        description='regulation type - required field.'
+    )
+    routing_type: str = Field(
+        title='routing_type',
+        description='routing type - required field.'
+    )
+    entry_type: Optional[str] = Field(
+        title='entry_type',
+        description='entry type - optional field, required for PINLESS transactions.',
+        default=None
+    )
+
+    @field_validator("routing_type")
+    def validate_routing_type(cls, v):
+        v_upper = v.upper()
+        allowed_values = ["PIN", "PINLESS"]
+        if v_upper not in allowed_values:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid value for routing_type: {v}. Must be 'PIN' or 'PINLESS'"
+            )
+        return v_upper
+
+    @field_validator("regulation_type")
+    def validate_regulation_type(cls, v):
+        v_upper = v.upper()
+        allowed_values = ["EX", "REG"]
+        if v_upper not in allowed_values:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid value for regulation_type: {v}. Must be 'REG' or 'EX'"
+            )
+        return v_upper
+
+    @field_validator("entry_type")
+    def validate_entry_type(cls, v, info):
+        # Get the routing_type value from the model data
+        routing_type = info.data.get('routing_type') if info.data else None
+        
+        # If routing_type is PINLESS, entry_type is required and must be valid
+        if routing_type == 'PINLESS':
+            if v is None:
+                raise HTTPException(
+                    status_code=400, detail="entry_type is required when routing_type is 'PINLESS'"
+                )
+            
+            v_upper = v.upper()
+            allowed_values = ["POS", "DPOS", "ECOM", "DECOM", "BP"]
+            if v_upper not in allowed_values:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid value for entry_type: {v}. Must be one of: {', '.join(allowed_values)}"
+                )
+            return v_upper
+        
+        # For any other routing_type (including PIN), entry_type should be None
+        else:
+            if v is not None:
+                raise HTTPException(
+                    status_code=400, detail="entry_type should not be provided when routing_type is not 'PINLESS'"
+                )
+        
+        return v
+
+
+
+
+# class ModelOutput(BaseModel):
+#     networks: list = Field(
+#         title='eligible networks ranked best to worst',
+#         description = 'something_else'
+#         )
+#     model_version: str = Field(
+#         title='placeholder for model_version outpus',
+#         description = 'something_else'
+#         )
