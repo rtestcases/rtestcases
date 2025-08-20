@@ -1,0 +1,528 @@
+import pytest
+from fastapi import HTTPException
+from app.schemas.infer import ModelInput
+
+
+class TestPINLESSComprehensive:
+    """Comprehensive tests for all PINLESS transaction scenarios."""
+
+    def test_all_valid_entry_types(self):
+        """Test all 5 valid entry_type values for PINLESS."""
+        valid_entry_types = ["POS", "DPOS", "ECOM", "DECOM", "BP"]
+        
+        for entry_type in valid_entry_types:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": entry_type
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type == entry_type
+            print(f"✓ Valid entry_type: {entry_type}")
+
+    def test_entry_type_case_insensitivity(self):
+        """Test that entry_type accepts various case formats."""
+        case_variations = [
+            {"entry_type": "pos", "expected": "POS"},
+            {"entry_type": "POS", "expected": "POS"},
+            {"entry_type": "Pos", "expected": "POS"},
+            {"entry_type": "dpos", "expected": "DPOS"},
+            {"entry_type": "DPOS", "expected": "DPOS"},
+            {"entry_type": "Dpos", "expected": "DPOS"},
+            {"entry_type": "ecom", "expected": "ECOM"},
+            {"entry_type": "ECOM", "expected": "ECOM"},
+            {"entry_type": "Ecom", "expected": "ECOM"},
+            {"entry_type": "decom", "expected": "DECOM"},
+            {"entry_type": "DECOM", "expected": "DECOM"},
+            {"entry_type": "Decom", "expected": "DECOM"},
+            {"entry_type": "bp", "expected": "BP"},
+            {"entry_type": "BP", "expected": "BP"},
+            {"entry_type": "Bp", "expected": "BP"},
+        ]
+        
+        for case in case_variations:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": case["entry_type"]
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.entry_type == case["expected"]
+            print(f"✓ Case insensitivity: {case['entry_type']} → {case['expected']}")
+
+    def test_routing_type_case_insensitivity(self):
+        """Test that routing_type accepts various case formats."""
+        case_variations = [
+            {"routing_type": "pinless", "expected": "PINLESS"},
+            {"routing_type": "PINLESS", "expected": "PINLESS"},
+            {"routing_type": "Pinless", "expected": "PINLESS"},
+            {"routing_type": "PINless", "expected": "PINLESS"},
+            {"routing_type": "pinLESS", "expected": "PINLESS"},
+        ]
+        
+        for case in case_variations:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": case["routing_type"],
+                "entry_type": "POS"
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == case["expected"]
+            print(f"✓ Routing type case insensitivity: {case['routing_type']} → {case['expected']}")
+
+    def test_missing_entry_type_scenarios(self):
+        """Test all scenarios where entry_type is missing."""
+        missing_scenarios = [
+            # No entry_type field at all
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS"
+                # Missing entry_type completely
+            },
+            # entry_type explicitly set to None
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": None
+            }
+        ]
+        
+        for i, scenario in enumerate(missing_scenarios, 1):
+            with pytest.raises(HTTPException) as exc_info:
+                ModelInput(**scenario)
+            assert exc_info.value.status_code == 400
+            assert "entry_type is required when routing_type is 'PINLESS'" in exc_info.value.detail
+            print(f"✓ Missing entry_type scenario {i} correctly rejected")
+
+    def test_invalid_entry_type_scenarios(self):
+        """Test all invalid entry_type scenarios."""
+        invalid_entry_types = [
+            # Completely wrong values
+            "ATM", "INVALID", "WRONG", "TEST", "DEBIT", "CREDIT",
+            # Similar but wrong values
+            "POS1", "DPOS2", "ECOM3", "DECOM4", "BP5",
+            "POSITION", "DEPOSIT", "ECOMMERCE", "DECOMMERCE", "BANKING",
+            # Empty and whitespace
+            "", " ", "  ", "\t", "\n",
+            # Special characters
+            "POS!", "DPOS@", "ECOM#", "DECOM$", "BP%",
+            # Numbers
+            "123", "456", "789",
+            # Mixed case wrong values
+            "pos1", "Dpos2", "ecom3", "Decom4", "bp5"
+        ]
+        
+        for invalid_type in invalid_entry_types:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": invalid_type
+            }
+            
+            with pytest.raises(HTTPException) as exc_info:
+                ModelInput(**request)
+            assert exc_info.value.status_code == 400
+            assert "Must be one of: POS, DPOS, ECOM, DECOM, BP" in exc_info.value.detail
+            print(f"✓ Invalid entry_type rejected: '{invalid_type}'")
+
+    def test_boundary_values_with_pinless(self):
+        """Test PINLESS with boundary values for all fields."""
+        boundary_tests = [
+            # Minimum valid values
+            {
+                "cardBin": "123456",  # Minimum 6 digits
+                "amount": 0.01,       # Minimum positive amount
+                "mcc": "0000",        # Minimum MCC
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "POS"
+            },
+            # Maximum valid values
+            {
+                "cardBin": "123456789",  # Maximum 9 digits
+                "amount": 999999.99,     # Large amount
+                "mcc": "9999",           # Maximum MCC
+                "merchant_code": "FGSM",
+                "regulation_type": "EX",
+                "routing_type": "PINLESS",
+                "entry_type": "BP"
+            },
+            # Edge case amounts
+            {
+                "cardBin": "400022002",
+                "amount": 1.0,           # Integer amount
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "ECOM"
+            },
+            {
+                "cardBin": "400022002",
+                "amount": 100.50,        # Decimal amount
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "DECOM"
+            }
+        ]
+        
+        for i, test_case in enumerate(boundary_tests, 1):
+            model_input = ModelInput(**test_case)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type in ["POS", "DPOS", "ECOM", "DECOM", "BP"]
+            print(f"✓ Boundary test {i} passed")
+
+    def test_different_merchant_codes_with_pinless(self):
+        """Test PINLESS with different valid merchant codes."""
+        merchant_code_tests = [
+            {"merchant_code": "SULL", "entry_type": "POS"},
+            {"merchant_code": "FGSM", "entry_type": "DPOS"},
+            {"merchant_code": "ABCD", "entry_type": "ECOM"},
+            {"merchant_code": "TEST", "entry_type": "DECOM"},
+        ]
+        
+        for test_case in merchant_code_tests:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                **test_case
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type == test_case["entry_type"]
+            assert model_input.merchant_code == test_case["merchant_code"]
+            print(f"✓ PINLESS with merchant_code {test_case['merchant_code']} passed")
+
+    def test_different_regulation_types_with_pinless(self):
+        """Test PINLESS with both regulation types."""
+        regulation_tests = [
+            {"regulation_type": "REG", "entry_type": "POS"},
+            {"regulation_type": "EX", "entry_type": "DPOS"},
+        ]
+        
+        for test_case in regulation_tests:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "routing_type": "PINLESS",
+                **test_case
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type == test_case["entry_type"]
+            assert model_input.regulation_type == test_case["regulation_type"]
+            print(f"✓ PINLESS with regulation_type {test_case['regulation_type']} passed")
+
+    def test_different_mcc_values_with_pinless(self):
+        """Test PINLESS with different MCC values."""
+        mcc_tests = [
+            {"mcc": "5411", "entry_type": "POS"},      # Grocery stores
+            {"mcc": "5814", "entry_type": "DPOS"},     # Fast food
+            {"mcc": "5541", "entry_type": "ECOM"},     # Gas stations
+            {"mcc": "5999", "entry_type": "DECOM"},    # Miscellaneous
+            {"mcc": "0000", "entry_type": "BP"},       # Minimum MCC
+            {"mcc": "9999", "entry_type": "POS"},      # Maximum MCC
+        ]
+        
+        for test_case in mcc_tests:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                **test_case
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type == test_case["entry_type"]
+            assert model_input.mcc == test_case["mcc"]
+            print(f"✓ PINLESS with MCC {test_case['mcc']} passed")
+
+    def test_different_card_bin_lengths_with_pinless(self):
+        """Test PINLESS with different card BIN lengths."""
+        card_bin_tests = [
+            {"cardBin": "123456", "entry_type": "POS"},        # 6 digits
+            {"cardBin": "1234567", "entry_type": "DPOS"},      # 7 digits
+            {"cardBin": "12345678", "entry_type": "ECOM"},     # 8 digits
+            {"cardBin": "123456789", "entry_type": "DECOM"},   # 9 digits
+        ]
+        
+        for test_case in card_bin_tests:
+            request = {
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                **test_case
+            }
+            
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type == test_case["entry_type"]
+            assert model_input.cardBin == test_case["cardBin"]
+            print(f"✓ PINLESS with card BIN length {len(test_case['cardBin'])} passed")
+
+    def test_complete_pinless_workflows(self):
+        """Test complete PINLESS transaction workflows."""
+        workflow_tests = [
+            # E-commerce transaction
+            {
+                "cardBin": "400022002",
+                "amount": 99.99,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "ECOM"
+            },
+            # Point of sale transaction
+            {
+                "cardBin": "403163030",
+                "amount": 25.50,
+                "mcc": "5411",
+                "merchant_code": "FGSM",
+                "regulation_type": "EX",
+                "routing_type": "PINLESS",
+                "entry_type": "POS"
+            },
+            # Digital point of sale
+            {
+                "cardBin": "473181000",
+                "amount": 150.00,
+                "mcc": "5541",
+                "merchant_code": "ABCD",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "DPOS"
+            },
+            # Digital e-commerce
+            {
+                "cardBin": "473703000",
+                "amount": 75.25,
+                "mcc": "5999",
+                "merchant_code": "TEST",
+                "regulation_type": "EX",
+                "routing_type": "PINLESS",
+                "entry_type": "DECOM"
+            },
+            # Bill payment
+            {
+                "cardBin": "403163052",
+                "amount": 500.00,
+                "mcc": "0000",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": "BP"
+            }
+        ]
+        
+        for i, test_case in enumerate(workflow_tests, 1):
+            model_input = ModelInput(**test_case)
+            assert model_input.routing_type == "PINLESS"
+            assert model_input.entry_type in ["POS", "DPOS", "ECOM", "DECOM", "BP"]
+            assert model_input.merchant_code in ["SULL", "FGSM", "ABCD", "TEST"]
+            assert model_input.regulation_type in ["REG", "EX"]
+            print(f"✓ Complete PINLESS workflow {i} passed: {test_case['entry_type']}")
+
+    def test_error_message_clarity(self):
+        """Test that error messages are clear and helpful."""
+        # Test missing entry_type error message
+        request_missing = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS"
+            # Missing entry_type
+        }
+        
+        with pytest.raises(HTTPException) as exc_info:
+            ModelInput(**request_missing)
+        error_message = exc_info.value.detail
+        assert "entry_type is required" in error_message
+        assert "PINLESS" in error_message
+        print(f"✓ Clear error message for missing entry_type: {error_message}")
+        
+        # Test invalid entry_type error message
+        request_invalid = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "INVALID"
+        }
+        
+        with pytest.raises(HTTPException) as exc_info:
+            ModelInput(**request_invalid)
+        error_message = exc_info.value.detail
+        assert "Invalid value for entry_type" in error_message
+        assert "Must be one of: POS, DPOS, ECOM, DECOM, BP" in error_message
+        print(f"✓ Clear error message for invalid entry_type: {error_message}")
+
+    def test_performance_with_pinless(self):
+        """Test that PINLESS validation is performant."""
+        import time
+        
+        request = {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "POS"
+        }
+        
+        # Test validation speed
+        start_time = time.time()
+        for _ in range(1000):
+            ModelInput(**request)
+        end_time = time.time()
+        
+        # Should complete 1000 validations in under 1 second
+        duration = end_time - start_time
+        assert duration < 1.0
+        print(f"✓ Performance test passed: {duration:.3f} seconds for 1000 PINLESS validations")
+
+
+class TestPINLESSvsPINCrossValidation:
+    """Test cross-validation between PIN and PINLESS transactions."""
+
+    def test_pin_with_entry_type_should_fail(self):
+        """PIN transactions should not accept entry_type."""
+        invalid_pin_requests = [
+            # PIN with each valid entry_type
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": "POS"
+            },
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": "DPOS"
+            },
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": "ECOM"
+            },
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": "DECOM"
+            },
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": "BP"
+            }
+        ]
+        
+        for i, request in enumerate(invalid_pin_requests, 1):
+            with pytest.raises(HTTPException) as exc_info:
+                ModelInput(**request)
+            assert exc_info.value.status_code == 400
+            assert "entry_type should not be provided when routing_type is not 'PINLESS'" in exc_info.value.detail
+            print(f"✓ PIN with entry_type {request['entry_type']} correctly rejected")
+
+    def test_pin_without_entry_type_should_pass(self):
+        """PIN transactions without entry_type should pass."""
+        valid_pin_requests = [
+            # PIN without entry_type field
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN"
+                # No entry_type field
+            },
+            # PIN with explicit None entry_type
+            {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PIN",
+                "entry_type": None
+            }
+        ]
+        
+        for i, request in enumerate(valid_pin_requests, 1):
+            model_input = ModelInput(**request)
+            assert model_input.routing_type == "PIN"
+            assert model_input.entry_type is None
+            print(f"✓ PIN without entry_type scenario {i} passed")
+
+
+if __name__ == "__main__":
+    # Run tests with verbose output
+    pytest.main([__file__, "-v", "-s"])
