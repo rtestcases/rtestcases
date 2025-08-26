@@ -1,9 +1,444 @@
-@field_validator("merchant_code")
-def validate_merchant_code(cls, v):
-    # Convert to uppercase first
-    v_upper = v.upper()
-    if not re.match(r"^[A-Z0-9]{3,4}$", v_upper):
-        raise HTTPException(
-            status_code=400, detail=f"Invalid merchant_code: {v}. Must be 3-4 characters of uppercase letters and digits"
-        )
-    return v_upper
+#!/usr/bin/env python3
+"""
+Comprehensive test script for Dynamic Routing Microservice API validation.
+Compatible with Python 3.12.7 and Pydantic 2.11.7
+
+This script tests all validation scenarios including:
+- Valid PIN and PINLESS requests
+- Invalid field validations
+- Merchant code validation (3-4 chars, uppercase + digits)
+- Cross-field validation (entry_type for PINLESS)
+- Edge cases and boundary conditions
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add the staging directory to Python path
+staging_dir = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(staging_dir))
+
+try:
+    from app.schemas.infer import ModelInput
+    print("✅ Successfully imported ModelInput from app.schemas.infer")
+except ImportError as e:
+    print(f"❌ Import failed: {e}")
+    print("Make sure you're running from the staging directory")
+    sys.exit(1)
+
+from fastapi import HTTPException
+
+def test_valid_pin_requests():
+    """Test valid PIN requests with various merchant codes."""
+    print("\n" + "="*60)
+    print("TESTING VALID PIN REQUESTS")
+    print("="*60)
+    
+    valid_requests = [
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",  # 4-char uppercase
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "403163030",
+            "amount": 11.1,
+            "mcc": "5411",
+            "merchant_code": "TJX",   # 3-char uppercase
+            "regulation_type": "EX",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "473181000",
+            "amount": 24.25,
+            "mcc": "5411",
+            "merchant_code": "SEG2",  # 4-char with digits
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "473703000",
+            "amount": 67.09,
+            "mcc": "5411",
+            "merchant_code": "RAL1",  # 4-char with digits
+            "regulation_type": "EX",
+            "routing_type": "PIN",
+        },
+        {
+            "cardBin": "403163052",
+            "amount": 97.32,
+            "mcc": "5411",
+            "merchant_code": "WEGM",  # 4-char uppercase
+            "regulation_type": "EX",
+            "routing_type": "PIN"
+        }
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for i, request in enumerate(valid_requests, 1):
+        try:
+            model_input = ModelInput(**request)
+            print(f"✅ Valid request {i} PASSED: {request['merchant_code']} -> {model_input.merchant_code}")
+            passed += 1
+        except Exception as e:
+            print(f"❌ Valid request {i} FAILED: {e}")
+            failed += 1
+    
+    print(f"\n📊 Valid PIN Requests: {passed} passed, {failed} failed")
+    return failed == 0
+
+def test_valid_pinless_requests():
+    """Test valid PINLESS requests with entry_type validation."""
+    print("\n" + "="*60)
+    print("TESTING VALID PINLESS REQUESTS")
+    print("="*60)
+    
+    valid_pinless_requests = [
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "POS"
+        },
+        {
+            "cardBin": "403163030",
+            "amount": 15.5,
+            "mcc": "5411",
+            "merchant_code": "TJX",
+            "regulation_type": "EX",
+            "routing_type": "PINLESS",
+            "entry_type": "ECOM"
+        },
+        {
+            "cardBin": "473181000",
+            "amount": 25.0,
+            "mcc": "5411",
+            "merchant_code": "SEG2",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "DPOS"
+        }
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for i, request in enumerate(valid_pinless_requests, 1):
+        try:
+            model_input = ModelInput(**request)
+            print(f"✅ Valid PINLESS request {i} PASSED: {request['entry_type']} -> {model_input.entry_type}")
+            passed += 1
+        except Exception as e:
+            print(f"❌ Valid PINLESS request {i} FAILED: {e}")
+            failed += 1
+    
+    print(f"\n📊 Valid PINLESS Requests: {passed} passed, {failed} failed")
+    return failed == 0
+
+def test_invalid_requests():
+    """Test various invalid request scenarios."""
+    print("\n" + "="*60)
+    print("TESTING INVALID REQUESTS")
+    print("="*60)
+    
+    invalid_requests = [
+        # Invalid cardBin
+        {
+            "cardBin": "47",  # Too short
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid cardBin: 47. Must be 6-9 digits"
+        },
+        {
+            "cardBin": "400022002123",  # Too long
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid cardBin: 400022002123. Must be 6-9 digits"
+        },
+        # Invalid amount
+        {
+            "cardBin": "400022002",
+            "amount": 0,  # Zero amount
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid amount: 0. Must be positive"
+        },
+        {
+            "cardBin": "400022002",
+            "amount": -10.0,  # Negative amount
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid amount: -10.0. Must be positive"
+        },
+        # Invalid mcc
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "541",  # Too short
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid mcc: 541. Must be exactly 4 digits"
+        },
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "54111",  # Too long
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid mcc: 54111. Must be exactly 4 digits"
+        },
+        # Invalid merchant_code
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "AB",  # Too short
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid merchant_code: AB. Must be 3-4 characters of uppercase letters and digits"
+        },
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "ABCDE",  # Too long
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid merchant_code: ABCDE. Must be 3-4 characters of uppercase letters and digits"
+        },
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SUL@",  # Special character
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid merchant_code: SUL@. Must be 3-4 characters of uppercase letters and digits"
+        },
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SU L",  # Space
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "expected_error": "Invalid merchant_code: SU L. Must be 3-4 characters of uppercase letters and digits"
+        },
+        # Invalid routing_type
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "INVALID",
+            "expected_error": "Invalid value for routing_type: INVALID. Must be 'PIN' or 'PINLESS'"
+        },
+        # Invalid regulation_type
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "INVALID",
+            "routing_type": "PIN",
+            "expected_error": "Invalid value for regulation_type: INVALID. Must be 'REG' or 'EX'"
+        },
+        # PINLESS without entry_type
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            # Missing entry_type
+            "expected_error": "entry_type is required when routing_type is 'PINLESS'"
+        },
+        # PINLESS with invalid entry_type
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PINLESS",
+            "entry_type": "INVALID",
+            "expected_error": "Invalid value for entry_type: INVALID. Must be one of: POS, DPOS, ECOM, DECOM, BP"
+        },
+        # PIN with entry_type (should fail)
+        {
+            "cardBin": "400022002",
+            "amount": 10.0,
+            "mcc": "5814",
+            "merchant_code": "SULL",
+            "regulation_type": "REG",
+            "routing_type": "PIN",
+            "entry_type": "POS",
+            "expected_error": "entry_type should not be provided when routing_type is not 'PINLESS'"
+        }
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for i, request in enumerate(invalid_requests, 1):
+        # Remove expected_error from the request data
+        expected_error = request.pop("expected_error")
+        
+        try:
+            model_input = ModelInput(**request)
+            print(f"❌ Invalid request {i} SHOULD HAVE FAILED but passed")
+            failed += 1
+        except HTTPException as e:
+            if expected_error in str(e.detail):
+                print(f"✅ Invalid request {i} correctly rejected: {e.detail}")
+                passed += 1
+            else:
+                print(f"❌ Invalid request {i} wrong error: expected '{expected_error}', got '{e.detail}'")
+                failed += 1
+        except Exception as e:
+            if expected_error in str(e):
+                print(f"✅ Invalid request {i} correctly rejected: {e}")
+                passed += 1
+            else:
+                print(f"❌ Invalid request {i} wrong error: expected '{expected_error}', got '{e}'")
+                failed += 1
+    
+    print(f"\n📊 Invalid Requests: {passed} passed, {failed} failed")
+    return failed == 0
+
+def test_merchant_code_case_conversion():
+    """Test merchant code case conversion functionality."""
+    print("\n" + "="*60)
+    print("TESTING MERCHANT CODE CASE CONVERSION")
+    print("="*60)
+    
+    case_tests = [
+        ("sull", "SULL"),
+        ("SeG2", "SEG2"),
+        ("tjx", "TJX"),
+        ("ral1", "RAL1"),
+        ("wegm", "WEGM"),
+        ("abc123", "ABC123")
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for input_code, expected_code in case_tests:
+        try:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": input_code,
+                "regulation_type": "REG",
+                "routing_type": "PIN"
+            }
+            model_input = ModelInput(**request)
+            if model_input.merchant_code == expected_code:
+                print(f"✅ '{input_code}' -> '{model_input.merchant_code}' (correct conversion)")
+                passed += 1
+            else:
+                print(f"❌ '{input_code}' -> '{model_input.merchant_code}' (expected '{expected_code}')")
+                failed += 1
+        except Exception as e:
+            print(f"❌ '{input_code}' failed: {e}")
+            failed += 1
+    
+    print(f"\n📊 Case Conversion Tests: {passed} passed, {failed} failed")
+    return failed == 0
+
+def test_all_entry_type_values():
+    """Test all valid entry_type values for PINLESS transactions."""
+    print("\n" + "="*60)
+    print("TESTING ALL ENTRY_TYPE VALUES")
+    print("="*60)
+    
+    valid_entry_types = ["POS", "DPOS", "ECOM", "DECOM", "BP"]
+    
+    passed = 0
+    failed = 0
+    
+    for entry_type in valid_entry_types:
+        try:
+            request = {
+                "cardBin": "400022002",
+                "amount": 10.0,
+                "mcc": "5814",
+                "merchant_code": "SULL",
+                "regulation_type": "REG",
+                "routing_type": "PINLESS",
+                "entry_type": entry_type
+            }
+            model_input = ModelInput(**request)
+            print(f"✅ entry_type '{entry_type}' -> '{model_input.entry_type}' (valid)")
+            passed += 1
+        except Exception as e:
+            print(f"❌ entry_type '{entry_type}' failed: {e}")
+            failed += 1
+    
+    print(f"\n📊 Entry Type Tests: {passed} passed, {failed} failed")
+    return failed == 0
+
+def main():
+    """Run all validation tests."""
+    print("🚀 Starting Dynamic Routing Microservice Validation Tests")
+    print("Python 3.12.7 + Pydantic 2.11.7 Compatibility Test")
+    print("="*80)
+    
+    # Run all test suites
+    test_results = []
+    
+    test_results.append(("Valid PIN Requests", test_valid_pin_requests()))
+    test_results.append(("Valid PINLESS Requests", test_valid_pinless_requests()))
+    test_results.append(("Invalid Requests", test_invalid_requests()))
+    test_results.append(("Merchant Code Case Conversion", test_merchant_code_case_conversion()))
+    test_results.append(("All Entry Type Values", test_all_entry_type_values()))
+    
+    # Summary
+    print("\n" + "="*80)
+    print("📋 TEST SUMMARY")
+    print("="*80)
+    
+    total_passed = sum(1 for _, result in test_results if result)
+    total_tests = len(test_results)
+    
+    for test_name, result in test_results:
+        status = "✅ PASSED" if result else "❌ FAILED"
+        print(f"{test_name}: {status}")
+    
+    print(f"\n📊 Overall Results: {total_passed}/{total_tests} test suites passed")
+    
+    if total_passed == total_tests:
+        print("\n🎉 ALL TESTS PASSED! Validation is working correctly.")
+        return True
+    else:
+        print(f"\n⚠️  {total_tests - total_passed} test suite(s) failed. Check the validation implementation.")
+        return False
+
+if __name__ == "__main__":
+    success = main()
+    sys.exit(0 if success else 1)
