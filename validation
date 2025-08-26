@@ -1,25 +1,36 @@
-@field_validator("routing_type")
-    def validate_routing_type(cls, v, info):
-        v_upper = v.upper()
-        allowed_values = ["PIN", "PINLESS"]
-        if v_upper not in allowed_values:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid value for routing_type: {v}. Must be 'PIN' or 'PINLESS'"
-            )
-        
-        # Get the entry_type value from the model data
-        entry_type = info.data.get('entry_type') if info.data else None
-        
-        # If routing_type is PINLESS, entry_type must be provided
-        if v_upper == 'PINLESS' and entry_type is None:
-            raise HTTPException(
-                status_code=400, detail="entry_type is required when routing_type is 'PINLESS'"
-            )
-        
-        # If routing_type is PIN, entry_type should not be provided
-        if v_upper == 'PIN' and entry_type is not None:
-            raise HTTPException(
-                status_code=400, detail="entry_type should not be provided when routing_type is not 'PINLESS'"
-            )
-        
-        return v_upper
+Business Logic Requirements (Lines 210-228):
+Purpose:
+Optimize performance by reducing data lookups
+Determine if a transaction's MCC has explicit rules or should use "all other MCCs" rules
+Lookup Process:
+First, try explicit MCC lookup:
+Construct key: {routing_type}_{merchant_code}_{mcc}_{regulation_type}[_{entry_type}]
+Examples:
+pinless_FGSM_5541_EX_DECOM
+pin_FGSM_SS41_REG
+If explicit MCC not found, try "AOR" (All Other Rules):
+Replace MCC with "AOR" in the key
+Examples:
+pinless_FGSM_AOR_EX_DECOM
+pin_FGSM_AOR_REG
+If neither found:
+Report "resource not found" error
+Key Construction Rules:
+Format: {routing_type}_{merchant_code}_{mcc}_{regulation_type}[_{entry_type}]
+entry_type is optional (only for PINLESS)
+Use the result for both amount mapping and DynamoDB searches
+Questions about this Business Logic:
+Where should this logic be implemented?
+In networks.py (business logic layer)
+As a separate utility function
+In the API route handler
+Should this be part of the validation or separate?
+This seems like business logic, not input validation
+Should it be called after validation passes?
+Error handling:
+What HTTP status code for "resource not found"?
+Should it be 404, 400, or something else?
+Integration:
+Should this replace the current get_partition_key function?
+How does this integrate with existing get_eligible_networks logic?
+This appears to be a separate business logic requirement that should be implemented in the model/networks layer, not in the validation schema. Is that correct?
